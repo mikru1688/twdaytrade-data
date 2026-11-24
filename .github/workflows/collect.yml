@@ -2,34 +2,95 @@ name: Collect open data
 
 on:
   schedule:
-    # Taipei = UTC+8. Weekdays 17:30 and 21:00 (second run catches late publications).
-    - cron: "30 9 * * 1-5"
-    - cron: "0 13 * * 1-5"
+    # Taipei = UTC+8.
+    - cron: "30 9 * * 1-5"   # Mon–Fri 17:30 collect
+    - cron: "0 13 * * 1-5"   # Mon–Fri 21:00 collect + daily summary
+    - cron: "0 23 * * 0-4"   # Mon–Fri 07:00 check previous trading day
   workflow_dispatch:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: collect
   cancel-in-progress: false
 
+env:
+  STATUS_PATH: ${{ github.workspace }}/status.json
+  STATUS_ISSUE_TITLE: Collector status
+
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve slot
+        id: slot
+        run: |
+          case "${{ github.event.schedule }}" in
+            "30 9 * * 1-5") echo "slot=17:30" >> "$GITHUB_OUTPUT" ;;
+            "0 13 * * 1-5") echo "slot=21:00 總結" >> "$GITHUB_OUTPUT" ;;
+            "0 23 * * 0-4") echo "slot=07:00 檢查" >> "$GITHUB_OUTPUT" ;;
+            *) echo "slot=手動" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Collect raw open data
+        id: collect
         run: python3 scripts/collect.py
+
       - name: Commit
+        id: commit
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
           git add data
           if git diff --cached --quiet; then
-            echo "No changes"
-          else
-            git commit -m "data: $(TZ=Asia/Taipei date '+%F %H:%M')"
-            git push
+            echo "result=無變更" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          git commit -m "data: $(TZ=Asia/Taipei date '+%F %H:%M') ${{ steps.slot.outputs.slot }}"
+          for i in 1 2 3; do
+            if git push; then echo "result=已 commit" >> "$GITHUB_OUTPUT"; exit 0; fi
+            sleep $((i * 10)); git pull --rebase
+          done
+          echo "result=push 失敗" >> "$GITHUB_OUTPUT"; exit 1
+
+      - name: Upload status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: status
+          path: status.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Notify
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLOT: ${{ steps.slot.outputs.slot }}
+          COMMIT_RESULT: ${{ steps.commit.outputs.result }}
+          JOB_STATUS: ${{ steps.collect.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          overall=$(python3 -c "import json,os;print(json.load(open(os.environ['STATUS_PATH']))['overall'])" 2>/dev/null || echo FAILED)
+          prev=$(tail -n 2 data/fetch-log.tsv 2>/dev/null | head -n 1 | cut -f2)
+          notify=no
+          case "$overall" in FAILED|INVALID) notify=yes ;; esac
+          [ "$SLOT" = "21:00 總結" ] && notify=yes
+          [ "$SLOT" = "手動" ] && notify=yes
+          if [ "$SLOT" = "07:00 檢查" ] && { [ "$overall" != "OK" ] || [ "$prev" != "OK" ]; }; then notify=yes; fi
+          echo "overall=$overall prev=$prev slot=$SLOT notify=$notify"
+          [ "$notify" = "yes" ] || exit 0
+          python3 scripts/notify.py > comment.md
+          num=$(gh issue list --state open --search "\"$STATUS_ISSUE_TITLE\" in:title" --json number,title --jq ".[] | select(.title == \"$STATUS_ISSUE_TITLE\") | .number" | head -n 1)
+          if [ -z "$num" ]; then
+            url=$(gh issue create --title "$STATUS_ISSUE_TITLE" --body "每次 collector 執行的結果會留言在這裡（失敗即時、每個交易日 21:00 總結、隔日 07:00 檢查有異常時）。")
+            num=${url##*/}
+            gh issue pin "$num" || true
+          fi
+          gh issue comment "$num" --body-file comment.md

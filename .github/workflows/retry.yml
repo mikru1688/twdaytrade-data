@@ -1,0 +1,39 @@
+name: Retry failed collect
+
+on:
+  workflow_run:
+    workflows: ["Collect open data"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Download status
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: status
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Decide
+        id: decide
+        run: |
+          overall=$(python3 -c "import json;print(json.load(open('status.json'))['overall'])" 2>/dev/null || echo FAILED)
+          echo "overall=$overall"
+          if [ "$overall" = "INVALID" ]; then echo "rerun=no" >> "$GITHUB_OUTPUT"; else echo "rerun=yes" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Wait 30 minutes and rerun
+        if: steps.decide.outputs.rerun == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 1800
+          gh run rerun ${{ github.event.workflow_run.id }} -R ${{ github.repository }}
