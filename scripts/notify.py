@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-LABEL = {"OK": "✅ OK", "PENDING": "⏳ 待更新", "HOLIDAY": "🛌 休市", "FAILED": "❌ 失敗", "INVALID": "⚠️ 資料異常", "SUSPECTED_CLOSED": "🌀 疑似休市（未預告）", "": "—"}
+LABEL = {"OK": "✅ OK", "SKIPPED": "⏭️ 本次不抓", "PENDING": "⏳ 待更新", "HOLIDAY": "🛌 休市", "FAILED": "❌ 失敗", "INVALID": "⚠️ 資料異常", "SUSPECTED_CLOSED": "🌀 疑似休市（未預告）", "": "—"}
 
 
 def main():

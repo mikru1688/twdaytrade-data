@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Collect daily after-hours open data (raw JSON) for TWDayTrade.
 
-Only public open-data endpoints. Each source is saved as
-data/raw/<source>/<YYYY-MM-DD>.json (data date when available, else Taipei fetch date).
+Only public open-data endpoints. Each source is saved as gzip-compressed compact JSON:
+data/raw/<source>/<YYYY-MM-DD>.json.gz (data date when available, else Taipei fetch date).
 A file is written only when the content differs from the latest saved file of that source.
+Gzip output is deterministic (mtime 0, no file name) so identical content gives identical bytes.
+Company-profile sources change rarely and are fetched weekly (Mondays) or when missing.
 
 Writes a run status to $STATUS_PATH (default: status.json) and exits:
   0 = OK, PENDING (data not published yet), HOLIDAY, SUSPECTED_CLOSED (unannounced closure, e.g. typhoon)
   1 = FAILED (fetch errors; a rerun may help)
   2 = INVALID (data anomaly; a rerun will not help)
 """
-import hashlib
+import gzip
+import io
 import json
 import os
 import re
@@ -30,7 +33,8 @@ HOLIDAY_URL = "https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule"
 TRADED_URL = "https://openapi.twse.com.tw/v1/exchangeReport/FMTQIK"
 SUSPECT_CLOSED_HOUR = 20  # from 20:00 Taipei, "nothing published today" means the market likely did not open
 
-# kind "daily": data date must match the expected trading day; "profile": reference data.
+# kind "daily": data date must match the expected trading day;
+# "tracker": fetched every run, no date expectation; "profile": weekly reference data.
 SOURCES = {
     "tpex_3insti_daily_trading": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"),
     "tpex_3insti_trading": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_3insti_trading"),
@@ -39,7 +43,7 @@ SOURCES = {
     "twse_t187ap03_L": ("profile", "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"),
     "tpex_mopsfin_t187ap03_O": ("profile", "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"),
     # 集中市場漲跌證券數統計表: content stuck at 1150605 as of 2026-11-24; tracked to see whether it resumes.
-    "twse_twtazu_od": ("profile", "https://openapi.twse.com.tw/v1/opendata/twtazu_od"),
+    "twse_twtazu_od": ("tracker", "https://openapi.twse.com.tw/v1/opendata/twtazu_od"),
 }
 
 ROC_DATE = re.compile(r"^(\d{3})(\d{2})(\d{2})$")
@@ -78,8 +82,20 @@ def data_date(rows):
 def latest_file(folder):
     if not os.path.isdir(folder):
         return None
-    files = sorted(f for f in os.listdir(folder) if f.endswith(".json"))
+    files = sorted(f for f in os.listdir(folder) if f.endswith(".json.gz"))
     return os.path.join(folder, files[-1]) if files else None
+
+
+def gzip_bytes(raw):
+    buf = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=buf, mtime=0, compresslevel=9) as gz:
+        gz.write(raw)
+    return buf.getvalue()
+
+
+def profile_due(folder, now):
+    """Weekly on Mondays, or whenever nothing has been saved yet."""
+    return now.weekday() == 0 or latest_file(folder) is None or os.environ.get("FORCE_PROFILES") == "1"
 
 
 def non_trading_days():
@@ -150,6 +166,10 @@ def main():
             time.sleep(GAP_SECONDS)
         item = {"source": name, "kind": kind, "status": "", "dataDate": None, "rows": None, "saved": False, "attempts": 0, "note": ""}
         results.append(item)
+        folder = os.path.join(ROOT, name)
+        if kind == "profile" and not profile_due(folder, now):
+            item.update(status="SKIPPED", note="weekly (Mondays)")
+            continue
         try:
             rows, attempts = fetch_json(url)
             item["attempts"] = attempts
@@ -162,23 +182,22 @@ def main():
         item["rows"] = len(rows)
         d = data_date(rows)
         item["dataDate"] = d.isoformat() if d else None
-        folder = os.path.join(ROOT, name)
         prev = latest_file(folder)
         canonical = json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if prev:
-            with open(prev, "rb") as fh:
+            with gzip.open(prev, "rb") as fh:
                 prev_bytes = fh.read()
             prev_rows = len(json.loads(prev_bytes))
             if prev_rows and len(rows) < prev_rows * MIN_ROW_RATIO:
                 item.update(status="INVALID", note=f"rows {len(rows)} < 70% of previous {prev_rows}")
                 continue
-            if hashlib.sha256(prev_bytes).digest() == hashlib.sha256(canonical).digest():
+            if prev_bytes == canonical:
                 item["note"] = "unchanged"
         if item["note"] != "unchanged":
             day = item["dataDate"] or now.strftime("%Y-%m-%d")
             os.makedirs(folder, exist_ok=True)
-            with open(os.path.join(folder, f"{day}.json"), "wb") as fh:
-                fh.write(canonical)
+            with open(os.path.join(folder, f"{day}.json.gz"), "wb") as fh:
+                fh.write(gzip_bytes(canonical))
             item["saved"] = True
         if kind == "daily" and d and d < expected:
             item["status"] = "PENDING"
