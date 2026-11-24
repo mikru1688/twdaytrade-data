@@ -6,7 +6,7 @@ data/raw/<source>/<YYYY-MM-DD>.json (data date when available, else Taipei fetch
 A file is written only when the content differs from the latest saved file of that source.
 
 Writes a run status to $STATUS_PATH (default: status.json) and exits:
-  0 = OK, PENDING (data not published yet), HOLIDAY
+  0 = OK, PENDING (data not published yet), HOLIDAY, SUSPECTED_CLOSED (unannounced closure, e.g. typhoon)
   1 = FAILED (fetch errors; a rerun may help)
   2 = INVALID (data anomaly; a rerun will not help)
 """
@@ -26,6 +26,9 @@ GAP_SECONDS = 5
 BACKOFF = (10, 20, 40)
 MIN_ROW_RATIO = 0.7  # rows below 70% of the previous file => INVALID
 HOLIDAY_URL = "https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule"
+# Daily market totals for the current month: lists the days the market actually traded.
+TRADED_URL = "https://openapi.twse.com.tw/v1/exchangeReport/FMTQIK"
+SUSPECT_CLOSED_HOUR = 20  # from 20:00 Taipei, "nothing published today" means the market likely did not open
 
 # kind "daily": data date must match the expected trading day; "profile": reference data.
 SOURCES = {
@@ -93,17 +96,38 @@ def non_trading_days():
     return closed, True
 
 
-def is_trading_day(d, closed):
-    return d.weekday() < 5 and d not in closed
+def traded_days():
+    """Days the TWSE market actually traded (current month) from FMTQIK."""
+    try:
+        rows, _ = fetch_json(TRADED_URL)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] FMTQIK unavailable: {exc}")
+        return set()
+    return {d for d in (roc_to_date(r.get("Date", "")) for r in rows if isinstance(r, dict)) if d}
 
 
-def expected_trading_day(now, closed):
-    """After 14:00 Taipei: today if trading. Otherwise: the previous trading day."""
-    d = now.date()
-    if now.hour >= 14 and is_trading_day(d, closed):
-        return d
-    d -= timedelta(days=1)
-    while not is_trading_day(d, closed):
+def is_trading_day(d, closed, traded):
+    """Scheduled trading day, minus days FMTQIK proves were skipped.
+
+    A weekday is treated as an unannounced closure (e.g. typhoon) only when FMTQIK
+    covers its month and already lists a later trading day, so publication lag is not misread.
+    """
+    if d.weekday() >= 5 or d in closed:
+        return False
+    if traded:
+        latest = max(traded)
+        if d.replace(day=1) == latest.replace(day=1) and d < latest and d not in traded:
+            return False
+    return True
+
+
+def expected_trading_day(now, closed, traded):
+    """After 14:00 Taipei: today if scheduled. Otherwise: the previous trading day."""
+    today = now.date()
+    if now.hour >= 14 and is_trading_day(today, closed, traded):
+        return today
+    d = today - timedelta(days=1)
+    while not is_trading_day(d, closed, traded):
         d -= timedelta(days=1)
     return d
 
@@ -112,8 +136,11 @@ def main():
     now = datetime.now(TPE)
     closed, calendar_ok = non_trading_days()
     time.sleep(GAP_SECONDS)
-    expected = expected_trading_day(now, closed)
-    holiday_today = now.hour >= 14 and not is_trading_day(now.date(), closed)
+    traded = traded_days()
+    time.sleep(GAP_SECONDS)
+    today = now.date()
+    expected = expected_trading_day(now, closed, traded)
+    holiday_today = now.hour >= 14 and not is_trading_day(today, closed, traded)
 
     results = []
     for i, (name, (kind, url)) in enumerate(SOURCES.items()):
@@ -157,12 +184,23 @@ def main():
             item["status"] = "OK"
 
     statuses = {r["status"] for r in results}
+    daily = [r for r in results if r["kind"] == "daily" and r["status"] in ("OK", "PENDING")]
+    nothing_today = bool(daily) and all(r["status"] == "PENDING" for r in daily)
+    # Every daily source still shows an older day and FMTQIK has no entry for the expected day:
+    # an unannounced closure (e.g. typhoon), not a failure. Same evening from 20:00, or the next morning.
+    suspected_closed = (
+        nothing_today
+        and expected not in traded
+        and (expected < today or now.hour >= SUSPECT_CLOSED_HOUR)
+    )
     if "INVALID" in statuses:
         overall = "INVALID"
     elif "FAILED" in statuses:
         overall = "FAILED"
     elif holiday_today:
         overall = "HOLIDAY"
+    elif suspected_closed:
+        overall = "SUSPECTED_CLOSED"
     elif "PENDING" in statuses:
         overall = "PENDING"
     else:
@@ -173,12 +211,12 @@ def main():
         "runAt": now.isoformat(timespec="seconds"),
         "expectedTradingDay": expected.isoformat(),
         "calendar": "ok" if calendar_ok else "unavailable",
+        "tradedDaysThisMonth": len(traded),
+        "todayTraded": today in traded,
         "sources": results,
     }
     with open(os.environ.get("STATUS_PATH", "status.json"), "w", encoding="utf-8") as fh:
         json.dump(status, fh, ensure_ascii=False, indent=2)
-    with open(os.path.join(ROOT, "..", "fetch-log.tsv"), "a", encoding="utf-8") as fh:
-        fh.write(f"{status['runAt']}\t{overall}\t{expected.isoformat()}\n")
     for r in results:
         print(f"[{r['status']}] {r['source']}: date={r['dataDate']} rows={r['rows']} saved={r['saved']} {r['note']}")
     print(f"OVERALL {overall} (expected {expected.isoformat()})")

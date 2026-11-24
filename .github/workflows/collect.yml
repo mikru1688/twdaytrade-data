@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: read
 
 concurrency:
   group: collect
@@ -78,9 +79,13 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           overall=$(python3 -c "import json,os;print(json.load(open(os.environ['STATUS_PATH']))['overall'])" 2>/dev/null || echo FAILED)
-          prev=$(tail -n 2 data/fetch-log.tsv 2>/dev/null | head -n 1 | cut -f2)
+          prev_id=$(gh run list -R "$GITHUB_REPOSITORY" -w "Collect open data" --status completed -L 5 --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)][0].databaseId")
+          prev=NONE
+          if [ -n "$prev_id" ] && gh run download "$prev_id" -R "$GITHUB_REPOSITORY" -n status -D prev-status 2>/dev/null; then
+            prev=$(python3 -c "import json;print(json.load(open('prev-status/status.json'))['overall'])" 2>/dev/null || echo NONE)
+          fi
           notify=no
-          case "$overall" in FAILED|INVALID) notify=yes ;; esac
+          case "$overall" in FAILED|INVALID|SUSPECTED_CLOSED) notify=yes ;; esac
           [ "$SLOT" = "21:00 總結" ] && notify=yes
           [ "$SLOT" = "手動" ] && notify=yes
           if [ "$SLOT" = "07:00 檢查" ] && { [ "$overall" != "OK" ] || [ "$prev" != "OK" ]; }; then notify=yes; fi
