@@ -1,0 +1,35 @@
+name: collect
+
+on:
+  schedule:
+    # Taipei = UTC+8. Weekdays 17:30 and 21:00 (second run catches late publications).
+    - cron: "30 9 * * 1-5"
+    - cron: "0 13 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect raw open data
+        run: python3 scripts/collect.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "data: $(TZ=Asia/Taipei date '+%F %H:%M')"
+            git push
+          fi
