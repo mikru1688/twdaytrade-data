@@ -38,6 +38,8 @@ SOURCES = {
     "tpex_mainboard_quotes": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"),
     "twse_t187ap03_L": ("profile", "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"),
     "tpex_mopsfin_t187ap03_O": ("profile", "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"),
+    # 集中市場漲跌證券數統計表: content stuck at 1150605 as of 2026-11-24; tracked to see whether it resumes.
+    "twse_twtazu_od": ("profile", "https://openapi.twse.com.tw/v1/opendata/twtazu_od"),
 }
 
 ROC_DATE = re.compile(r"^(\d{3})(\d{2})(\d{2})$")
@@ -67,7 +69,7 @@ def fetch_json(url):
 def data_date(rows):
     if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
         return None
-    for key in ("Date", "date", "資料日期"):
+    for key in ("Date", "date", "資料日期", "出表日期"):
         if key in rows[0]:
             return roc_to_date(rows[0][key])
     return None

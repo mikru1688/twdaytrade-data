@@ -16,5 +16,6 @@ All data comes from Taiwan Stock Exchange and Taipei Exchange OpenAPI endpoints 
 | 上櫃股票基本資料 | `https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O` |
 | 上市個股日成交資訊 | `https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL` |
 | 上櫃股票收盤行情 | `https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes` |
+| 集中市場漲跌證券數統計表（追蹤是否恢復更新） | `https://openapi.twse.com.tw/v1/opendata/twtazu_od` |
 
 The data is for reference only. Announcements by the Taiwan Stock Exchange and the Taipei Exchange prevail. Nothing here is investment advice.
