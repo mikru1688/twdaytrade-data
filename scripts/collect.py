@@ -13,6 +13,7 @@ Writes a run status to $STATUS_PATH (default: status.json) and exits:
   2 = INVALID (data anomaly; a rerun will not help)
 """
 import gzip
+import csv
 import io
 import json
 import os
@@ -35,6 +36,8 @@ SUSPECT_CLOSED_HOUR = 20  # from 20:00 Taipei, "nothing published today" means t
 
 # kind "daily": data date must match the expected trading day;
 # "tracker": fetched every run, no date expectation; "profile": weekly reference data.
+TAIFEX_CSV = "https://www.taifex.com.tw/data_gov/taifex_open_data.asp?data_name="
+
 SOURCES = {
     "tpex_3insti_daily_trading": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"),
     "tpex_3insti_trading": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_3insti_trading"),
@@ -44,13 +47,22 @@ SOURCES = {
     "tpex_mopsfin_t187ap03_O": ("profile", "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"),
     # 集中市場漲跌證券數統計表: content stuck at 1150605 as of 2026-11-24; tracked to see whether it resumes.
     "twse_twtazu_od": ("tracker", "https://openapi.twse.com.tw/v1/opendata/twtazu_od"),
+    # TAIFEX via data.gov.tw (政府資料開放授權條款): CSV, stored as JSON rows.
+    "taifex_put_call_ratio": ("daily", TAIFEX_CSV + "PutCallRatio"),  # 11322 臺指選擇權Put/Call比
+    "taifex_institutional_futures": ("daily", TAIFEX_CSV + "MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate"),  # 11596
+    "taifex_large_traders_futures": ("daily", TAIFEX_CSV + "OpenInterestOfLargeTradersFutures"),  # 11337
 }
 
 ROC_DATE = re.compile(r"^(\d{3})(\d{2})(\d{2})$")
+AD_DATE = re.compile(r"^(\d{4})(\d{2})(\d{2})$")
 
 
 def roc_to_date(value):
-    m = ROC_DATE.match(str(value).strip())
+    text = str(value).strip()
+    m = AD_DATE.match(text)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m = ROC_DATE.match(text)
     if not m:
         return None
     return date(int(m.group(1)) + 1911, int(m.group(2)), int(m.group(3)))
@@ -62,7 +74,10 @@ def fetch_json(url):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.loads(resp.read().decode("utf-8-sig")), attempt
+                text = resp.read().decode("utf-8-sig").lstrip("\ufeff")
+                if url.startswith(TAIFEX_CSV):
+                    return parse_csv(text), attempt
+                return json.loads(text), attempt
         except Exception as exc:  # noqa: BLE001
             last = exc
             if attempt < len(BACKOFF):
@@ -70,10 +85,17 @@ def fetch_json(url):
     raise RuntimeError(f"{type(last).__name__}: {last}")
 
 
+def parse_csv(text):
+    rows = list(csv.DictReader(io.StringIO(text)))
+    if not rows or None in rows[0]:
+        raise ValueError("CSV without a header row or with ragged rows")
+    return [{k.strip(): (v or "").strip() for k, v in r.items()} for r in rows]
+
+
 def data_date(rows):
     if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
         return None
-    for key in ("Date", "date", "資料日期", "出表日期"):
+    for key in ("Date", "date", "資料日期", "出表日期", "日期"):
         if key in rows[0]:
             return roc_to_date(rows[0][key])
     return None
