@@ -2,7 +2,7 @@
 
 Daily after-hours open data snapshots used by the TWDayTrade iOS app.
 
-A scheduled GitHub Actions workflow fetches public open-data endpoints on weekday evenings (Taipei time) and stores the raw JSON (compact, gzip-compressed) under `data/raw/<source>/<YYYY-MM-DD>.json.gz`. Files are written only when the content changes. Company-profile sources are fetched weekly (Mondays).
+A scheduled GitHub Actions workflow fetches public open-data endpoints on weekdays (Taipei 17:47, 21:13, next-morning 06:43 check and 09:17 backup) and stores the raw JSON (compact, gzip-compressed) under `data/raw/<source>/<YYYY-MM-DD>.json.gz`. Files are written only when the content changes. Company-profile sources are fetched weekly (Mondays).
 
 ## Data sources and license
 
