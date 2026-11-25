@@ -6,7 +6,8 @@ on:
     # Off-minute times: GitHub delays top-of-hour schedules by hours.
     - cron: "47 9 * * 1-5"   # Mon–Fri 17:47 collect
     - cron: "13 13 * * 1-5"  # Mon–Fri 21:13 collect + daily summary
-    - cron: "43 22 * * 0-4"  # Mon–Fri 06:43 check previous trading day
+    - cron: "13 23 * * 0-4"  # Mon–Fri 07:13 check previous trading day + TAIFEX night session
+    - cron: "43 6 * * 1-5"   # Mon–Fri 14:43 TAIFEX day session
     - cron: "17 1 * * 1-5"   # Mon–Fri 09:17 backup (catches delayed/missed runs)
   workflow_dispatch:
 
@@ -36,7 +37,8 @@ jobs:
           case "${{ github.event.schedule }}" in
             "47 9 * * 1-5") echo "slot=17:47" >> "$GITHUB_OUTPUT" ;;
             "13 13 * * 1-5") echo "slot=21:13 總結" >> "$GITHUB_OUTPUT" ;;
-            "43 22 * * 0-4") echo "slot=06:43 檢查" >> "$GITHUB_OUTPUT" ;;
+            "13 23 * * 0-4") echo "slot=07:13 檢查" >> "$GITHUB_OUTPUT" ;;
+            "43 6 * * 1-5") echo "slot=14:43 期貨日盤" >> "$GITHUB_OUTPUT" ;;
             "17 1 * * 1-5") echo "slot=09:17 備援" >> "$GITHUB_OUTPUT" ;;
             *) echo "slot=手動" >> "$GITHUB_OUTPUT" ;;
           esac
@@ -91,13 +93,13 @@ jobs:
           case "$overall" in FAILED|INVALID|SUSPECTED_CLOSED) notify=yes ;; esac
           [ "$SLOT" = "21:13 總結" ] && notify=yes
           [ "$SLOT" = "手動" ] && notify=yes
-          if { [ "$SLOT" = "06:43 檢查" ] || [ "$SLOT" = "09:17 備援" ]; } && { [ "$overall" != "OK" ] || [ "$prev" != "OK" ]; }; then notify=yes; fi
+          if { [ "$SLOT" = "07:13 檢查" ] || [ "$SLOT" = "09:17 備援" ]; } && { [ "$overall" != "OK" ] || [ "$prev" != "OK" ]; }; then notify=yes; fi
           echo "overall=$overall prev=$prev slot=$SLOT notify=$notify"
           [ "$notify" = "yes" ] || exit 0
           python3 scripts/notify.py > comment.md
           num=$(gh issue list --state open --search "\"$STATUS_ISSUE_TITLE\" in:title" --json number,title --jq ".[] | select(.title == \"$STATUS_ISSUE_TITLE\") | .number" | head -n 1)
           if [ -z "$num" ]; then
-            url=$(gh issue create --title "$STATUS_ISSUE_TITLE" --body "每次 collector 執行的結果會留言在這裡（失敗即時、每個交易日 21:13 總結、隔日 06:43 檢查與 09:17 備援有異常時）。")
+            url=$(gh issue create --title "$STATUS_ISSUE_TITLE" --body "每次 collector 執行的結果會留言在這裡（失敗即時、每個交易日 21:13 總結、隔日 07:13 檢查與 09:17 備援有異常時）。")
             num=${url##*/}
             gh issue pin "$num" || true
           fi
