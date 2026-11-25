@@ -20,5 +20,6 @@ All data comes from Taiwan Stock Exchange and Taipei Exchange OpenAPI endpoints 
 | 臺指選擇權Put/Call比（data.gov.tw 11322） | `https://www.taifex.com.tw/data_gov/taifex_open_data.asp?data_name=PutCallRatio` |
 | 期貨市場三大法人-區分各期貨契約-依日期（11596） | `…?data_name=MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate` |
 | 期貨大額交易人未沖銷部位資料（11337） | `…?data_name=OpenInterestOfLargeTradersFutures` |
+| 期貨每日交易行情（11319，含一般／盤後交易時段） | `…?data_name=DailyMarketReportFut` |
 
 The data is for reference only. Announcements by the Taiwan Stock Exchange, the Taipei Exchange and the Taiwan Futures Exchange prevail. Nothing here is investment advice.

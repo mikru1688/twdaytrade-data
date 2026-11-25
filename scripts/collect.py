@@ -51,6 +51,7 @@ SOURCES = {
     "taifex_put_call_ratio": ("daily", TAIFEX_CSV + "PutCallRatio"),  # 11322 臺指選擇權Put/Call比
     "taifex_institutional_futures": ("daily", TAIFEX_CSV + "MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate"),  # 11596
     "taifex_large_traders_futures": ("daily", TAIFEX_CSV + "OpenInterestOfLargeTradersFutures"),  # 11337
+    "taifex_daily_futures": ("daily", TAIFEX_CSV + "DailyMarketReportFut"),  # 11319 期貨每日交易行情（含交易時段）
 }
 
 ROC_DATE = re.compile(r"^(\d{3})(\d{2})(\d{2})$")
