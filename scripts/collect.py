@@ -29,6 +29,8 @@ UA = "twdaytrade-data-collector/1.1 (+https://github.com/mikru1688/twdaytrade-da
 GAP_SECONDS = 5
 BACKOFF = (10, 20, 40)
 MIN_ROW_RATIO = 0.7  # rows below 70% of the previous file => INVALID
+# Ranking lists (e.g. 三大法人買賣超排行): row count varies with the day, so skip the ratio check.
+NO_ROW_RATIO = {"tpex_3insti_trading"}
 HOLIDAY_URL = "https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule"
 # Daily market totals for the current month: lists the days the market actually traded.
 TRADED_URL = "https://openapi.twse.com.tw/v1/exchangeReport/FMTQIK"
@@ -211,7 +213,7 @@ def main():
             with gzip.open(prev, "rb") as fh:
                 prev_bytes = fh.read()
             prev_rows = len(json.loads(prev_bytes))
-            if prev_rows and len(rows) < prev_rows * MIN_ROW_RATIO:
+            if name not in NO_ROW_RATIO and prev_rows and len(rows) < prev_rows * MIN_ROW_RATIO:
                 item.update(status="INVALID", note=f"rows {len(rows)} < 70% of previous {prev_rows}")
                 continue
             if prev_bytes == canonical:
