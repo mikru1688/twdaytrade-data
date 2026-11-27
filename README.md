@@ -2,7 +2,7 @@
 
 Daily after-hours open data snapshots used by the TWDayTrade iOS app.
 
-A scheduled GitHub Actions workflow fetches public open-data endpoints on weekdays (Taipei 14:43 for the TAIFEX day session, 17:47, 21:13, next-morning 07:13 check incl. TAIFEX night session, and 09:17 backup) and stores the raw JSON (compact, gzip-compressed) under `data/raw/<source>/<YYYY-MM-DD>.json.gz`. Files are written only when the content changes. Company-profile sources are fetched weekly (Mondays).
+A scheduled GitHub Actions workflow fetches public open-data endpoints on weekdays (Taipei 14:43 for the TAIFEX day session, 17:47, 21:13, next-morning 07:13 check incl. TAIFEX night session, and 09:17 backup) and stores the raw JSON (compact, gzip-compressed) under `data/raw/<source>/<YYYY-MM-DD>.json.gz`. Files are written only when the content changes. Company-profile sources are fetched weekly (Mondays). `STOCK_DAY_ALL` is published by TWSE around 05:20 Taipei the next morning, so it is only expected to reach the previous trading day; the 07:13 check picks it up.
 
 ## Data sources and license
 

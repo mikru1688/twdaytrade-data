@@ -37,13 +37,16 @@ TRADED_URL = "https://openapi.twse.com.tw/v1/exchangeReport/FMTQIK"
 SUSPECT_CLOSED_HOUR = 20  # from 20:00 Taipei, "nothing published today" means the market likely did not open
 
 # kind "daily": data date must match the expected trading day;
+# "next_morning": daily data the source publishes only early the next morning (~05:20 Taipei),
+#   so it is expected to match the previous trading day, not today;
 # "tracker": fetched every run, no date expectation; "profile": weekly reference data.
 TAIFEX_CSV = "https://www.taifex.com.tw/data_gov/taifex_open_data.asp?data_name="
 
 SOURCES = {
     "tpex_3insti_daily_trading": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"),
     "tpex_3insti_trading": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_3insti_trading"),
-    "twse_STOCK_DAY_ALL": ("daily", "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"),
+    # TWSE OpenAPI updates this around 05:20 Taipei the next morning (Last-Modified).
+    "twse_STOCK_DAY_ALL": ("next_morning", "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"),
     "tpex_mainboard_quotes": ("daily", "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"),
     "twse_t187ap03_L": ("profile", "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"),
     "tpex_mopsfin_t187ap03_O": ("profile", "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"),
@@ -164,15 +167,19 @@ def is_trading_day(d, closed, traded):
     return True
 
 
+def previous_trading_day(day, closed, traded):
+    d = day - timedelta(days=1)
+    while not is_trading_day(d, closed, traded):
+        d -= timedelta(days=1)
+    return d
+
+
 def expected_trading_day(now, closed, traded):
     """After 14:00 Taipei: today if scheduled. Otherwise: the previous trading day."""
     today = now.date()
     if now.hour >= 14 and is_trading_day(today, closed, traded):
         return today
-    d = today - timedelta(days=1)
-    while not is_trading_day(d, closed, traded):
-        d -= timedelta(days=1)
-    return d
+    return previous_trading_day(today, closed, traded)
 
 
 def main():
@@ -183,6 +190,7 @@ def main():
     time.sleep(GAP_SECONDS)
     today = now.date()
     expected = expected_trading_day(now, closed, traded)
+    expected_next_morning = previous_trading_day(today, closed, traded)
     holiday_today = now.hour >= 14 and not is_trading_day(today, closed, traded)
 
     results = []
@@ -224,7 +232,8 @@ def main():
             with open(os.path.join(folder, f"{day}.json.gz"), "wb") as fh:
                 fh.write(gzip_bytes(canonical))
             item["saved"] = True
-        if kind == "daily" and d and d < expected:
+        source_expected = expected_next_morning if kind == "next_morning" else expected
+        if kind in ("daily", "next_morning") and d and d < source_expected:
             item["status"] = "PENDING"
         else:
             item["status"] = "OK"
